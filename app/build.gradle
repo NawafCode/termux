@@ -237,7 +237,8 @@ task downloadBootstraps() {
 }
 
 afterEvaluate {
-    android.applicationVariants.all { variant ->
-        variant.javaCompileProvider.get().dependsOn(downloadBootstraps)
+    // Native assembly needs the bootstrap ZIPs before Java compilation in Release builds.
+    tasks.named("preBuild").configure {
+        dependsOn(downloadBootstraps)
     }
 }
