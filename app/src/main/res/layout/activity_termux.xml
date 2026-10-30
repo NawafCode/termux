@@ -25,6 +25,7 @@
 
             <com.termux.view.TerminalView
                 android:id="@+id/terminal_view"
+                android:layoutDirection="ltr"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:defaultFocusHighlightEnabled="false"
@@ -96,6 +97,7 @@
 
         <androidx.viewpager.widget.ViewPager
             android:id="@+id/terminal_toolbar_view_pager"
+            android:layoutDirection="ltr"
             android:visibility="gone"
             android:layout_width="match_parent"
             android:layout_height="37.5dp"

@@ -13,7 +13,7 @@ android {
     defaultConfig {
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -39,6 +39,8 @@ android {
 
 dependencies {
     testImplementation "junit:junit:4.13.2"
+    androidTestImplementation "androidx.test:runner:1.6.2"
+    androidTestImplementation "junit:junit:4.13.2"
 }
 
 task sourceJar(type: Jar) {
@@ -60,4 +62,3 @@ afterEvaluate {
         }
     }
 }
-

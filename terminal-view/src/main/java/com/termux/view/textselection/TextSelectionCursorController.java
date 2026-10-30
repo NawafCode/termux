@@ -4,7 +4,6 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.Build;
-import android.text.TextUtils;
 import android.view.ActionMode;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -14,7 +13,7 @@ import android.view.View;
 import androidx.annotation.Nullable;
 
 import com.termux.terminal.TerminalBuffer;
-import com.termux.terminal.WcWidth;
+import com.termux.terminal.TerminalRow;
 import com.termux.view.R;
 import com.termux.view.TerminalView;
 
@@ -46,7 +45,7 @@ public class TextSelectionCursorController implements CursorController {
     public void show(MotionEvent event) {
         setInitialTextSelectionPosition(event);
         mStartHandle.positionAtCursor(mSelX1, mSelY1, true);
-        mEndHandle.positionAtCursor(mSelX2 + 1, mSelY2, true);
+        mEndHandle.positionAtCursor(mSelX2, mSelY2, true);
 
         setActionModeCallBacks();
         mShowStartTime = System.currentTimeMillis();
@@ -83,7 +82,7 @@ public class TextSelectionCursorController implements CursorController {
         if (!isActive()) return;
 
         mStartHandle.positionAtCursor(mSelX1, mSelY1, false);
-        mEndHandle.positionAtCursor(mSelX2 + 1, mSelY2, false);
+        mEndHandle.positionAtCursor(mSelX2, mSelY2, false);
 
         if (mActionMode != null) {
             mActionMode.invalidate();
@@ -192,8 +191,12 @@ public class TextSelectionCursorController implements CursorController {
 
             @Override
             public void onGetContentRect(ActionMode mode, View view, Rect outRect) {
-                int x1 = Math.round(mSelX1 * terminalView.mRenderer.getFontWidth());
-                int x2 = Math.round(mSelX2 * terminalView.mRenderer.getFontWidth());
+                int x1 = terminalView.getSelectionPointX(mSelX1, mSelY1, false);
+                int x2 = terminalView.getSelectionPointX(mSelX2, mSelY2, true);
+                if (mSelY1 != mSelY2) {
+                    x1 = 0;
+                    x2 = terminalView.getWidth();
+                }
                 int y1 = Math.round((mSelY1 - 1 - terminalView.getTopRow()) * terminalView.mRenderer.getFontLineSpacing());
                 int y2 = Math.round((mSelY2 + 1 - terminalView.getTopRow()) * terminalView.mRenderer.getFontLineSpacing());
 
@@ -219,8 +222,8 @@ public class TextSelectionCursorController implements CursorController {
         TerminalBuffer screen = terminalView.mEmulator.getScreen();
         final int scrollRows = screen.getActiveRows() - terminalView.mEmulator.mRows;
         if (handle == mStartHandle) {
-            mSelX1 = terminalView.getCursorX(x);
             mSelY1 = terminalView.getCursorY(y);
+            mSelX1 = terminalView.getSelectionColumn(x, mSelY1, false, mSelX1);
             if (mSelX1 < 0) {
                 mSelX1 = 0;
             }
@@ -261,8 +264,8 @@ public class TextSelectionCursorController implements CursorController {
             mSelX1 = getValidCurX(screen, mSelY1, mSelX1);
 
         } else {
-            mSelX2 = terminalView.getCursorX(x);
             mSelY2 = terminalView.getCursorY(y);
+            mSelX2 = terminalView.getSelectionColumn(x, mSelY2, true, mSelX2);
             if (mSelX2 < 0) {
                 mSelX2 = 0;
             }
@@ -305,33 +308,9 @@ public class TextSelectionCursorController implements CursorController {
     }
 
     private int getValidCurX(TerminalBuffer screen, int cy, int cx) {
-        String line = screen.getSelectedText(0, cy, cx, cy);
-        if (!TextUtils.isEmpty(line)) {
-            int col = 0;
-            for (int i = 0, len = line.length(); i < len; i++) {
-                char ch1 = line.charAt(i);
-                if (ch1 == 0) {
-                    break;
-                }
-
-                int wc;
-                if (Character.isHighSurrogate(ch1) && i + 1 < len) {
-                    char ch2 = line.charAt(++i);
-                    wc = WcWidth.width(Character.toCodePoint(ch1, ch2));
-                } else {
-                    wc = WcWidth.width(ch1);
-                }
-
-                final int cend = col + wc;
-                if (cx > col && cx < cend) {
-                    return cend;
-                }
-                if (cend == col) {
-                    return col;
-                }
-                col = cend;
-            }
-        }
+        cx = Math.max(0, Math.min(terminalView.mEmulator.mColumns - 1, cx));
+        TerminalRow row = screen.allocateFullLineIfNecessary(screen.externalToInternalRow(cy));
+        if (cx > 0 && row.findStartOfColumn(cx) == row.findStartOfColumn(cx - 1)) cx--;
         return cx;
     }
 

@@ -8,6 +8,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.os.Build;
+import android.text.TextPaint;
 
 import com.termux.terminal.TerminalBuffer;
 import com.termux.terminal.TerminalEmulator;
@@ -24,7 +25,8 @@ public final class TerminalRenderer {
 
     final int mTextSize;
     final Typeface mTypeface;
-    private final Paint mTextPaint = new Paint();
+    private final TextPaint mTextPaint = new TextPaint();
+    private boolean mBidiEnabled = true;
 
     /** The width of a single mono spaced character obtained by {@link Paint#measureText(String)} on a single 'X'. */
     final float mFontWidth;
@@ -57,6 +59,10 @@ public final class TerminalRenderer {
         }
     }
 
+    public void setBidiEnabled(boolean enabled) {
+        mBidiEnabled = enabled;
+    }
+
     /** Render the terminal to a canvas with at a specified row scroll, and an optional rectangular selection. */
     public final void render(TerminalEmulator mEmulator, Canvas canvas, int topRow,
                              int selectionY1, int selectionY2, int selectionX1, int selectionX2) {
@@ -85,6 +91,11 @@ public final class TerminalRenderer {
             }
 
             TerminalRow lineObject = screen.allocateFullLineIfNecessary(screen.externalToInternalRow(row));
+            TerminalTextLayout layout = mBidiEnabled ? TerminalTextLayout.forRow(lineObject, columns) : null;
+            if (layout != null) {
+                renderBidiRow(mEmulator, canvas, lineObject, layout, heightOffset, cursorX, selx1, selx2);
+                continue;
+            }
             final char[] line = lineObject.mText;
             final int charsUsedInLine = lineObject.getSpaceUsed();
 
@@ -104,14 +115,7 @@ public final class TerminalRenderer {
                 final int codePoint = charIsHighsurrogate ? Character.toCodePoint(charAtIndex, line[currentCharIndex + 1]) : charAtIndex;
                 final long style = lineObject.getStyle(column);
                 if (TextStyle.isTerminalBitmap(style)) {
-                    Bitmap bitmap = mEmulator.getScreen().getSixelBitmap(style);
-                    if (bitmap != null) {
-                        float left = column * mFontWidth;
-                        float top = heightOffset - mFontLineSpacing;
-                        Rect bitmapSrcRect = mEmulator.getScreen().getSixelRect(style);
-                        RectF bitmapDestRect = new RectF(left, top, left + mFontWidth, top + mFontLineSpacing);
-                        canvas.drawBitmap(bitmap, bitmapSrcRect, bitmapDestRect, null);
-                    }
+                    drawBitmapCell(mEmulator, canvas, column, heightOffset, style);
                     column += 1;
                     measuredWidthForRun = 0.f;
                     lastRunStyle = 0;
@@ -182,6 +186,69 @@ public final class TerminalRenderer {
     private void drawTextRun(Canvas canvas, char[] text, int[] palette, float y, int startColumn, int runWidthColumns,
                              int startCharIndex, int runWidthChars, float mes, int cursor, int cursorStyle,
                              long textStyle, boolean reverseVideo) {
+        drawTextRun(canvas, text, palette, y, startColumn, runWidthColumns, startCharIndex, runWidthChars,
+            mes, cursor, cursorStyle, textStyle, reverseVideo, null, 0);
+    }
+
+    private void renderBidiRow(TerminalEmulator emulator, Canvas canvas, TerminalRow row,
+                               TerminalTextLayout layout, float y, int cursor, int selStart, int selEnd) {
+        int[] palette = emulator.mColors.mCurrentColors;
+        int cursorShape = emulator.getCursorStyle();
+        for (TerminalTextLayout.Run run : layout.runs) {
+            mTextPaint.setFakeBoldText(false);
+            mTextPaint.setTextSkewX(0);
+            mTextPaint.setUnderlineText(false);
+            mTextPaint.setStrikeThruText(false);
+            // Synthetic bold/italic can change advances on older Android versions.
+            // Share shaping across colours, but measure each font-effect combination separately.
+            TerminalTextLayout.ShapedRun[] shapes = run.isRtl() ? new TerminalTextLayout.ShapedRun[4] : null;
+            for (int i = 0; i < run.cells.length; i++) {
+                TerminalTextLayout.Cell cell = run.cells[i];
+                long style = row.getStyle(cell.column);
+                if (cell.bitmap) {
+                    drawBitmapCell(emulator, canvas, cell.visualColumn, y, style);
+                    continue;
+                }
+                TerminalTextLayout.ShapedRun shaped = null;
+                if (shapes != null) {
+                    int effect = TextStyle.decodeEffect(style);
+                    boolean bold = (effect & (TextStyle.CHARACTER_ATTRIBUTE_BOLD | TextStyle.CHARACTER_ATTRIBUTE_BLINK)) != 0;
+                    boolean italic = (effect & TextStyle.CHARACTER_ATTRIBUTE_ITALIC) != 0;
+                    int fontEffect = (bold ? 1 : 0) | (italic ? 2 : 0);
+                    if (shapes[fontEffect] == null) {
+                        TextPaint paint = new TextPaint(mTextPaint);
+                        paint.setFakeBoldText(bold);
+                        paint.setTextSkewX(italic ? -0.35f : 0);
+                        shapes[fontEffect] = new TerminalTextLayout.ShapedRun(row.mText, run, paint);
+                    }
+                    shaped = shapes[fontEffect];
+                }
+                boolean atCursor = cursor >= cell.column && cursor < cell.column + cell.width;
+                boolean selected = cell.column + cell.width > selStart && cell.column <= selEnd;
+                boolean reverse = emulator.isReverseVideo() || selected
+                    || (atCursor && cursorShape == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK);
+                float width = shaped == null ? mTextPaint.measureText(row.mText, cell.start, cell.end - cell.start)
+                    : cell.width * mFontWidth;
+                drawTextRun(canvas, row.mText, palette, y, cell.visualColumn, cell.width,
+                    cell.start, cell.end - cell.start, width, atCursor ? palette[TextStyle.COLOR_INDEX_CURSOR] : 0,
+                    cursorShape, style, reverse, shaped, i);
+            }
+        }
+    }
+
+    private void drawBitmapCell(TerminalEmulator emulator, Canvas canvas, int column, float y, long style) {
+        Bitmap bitmap = emulator.getScreen().getSixelBitmap(style);
+        if (bitmap == null) return;
+        float left = column * mFontWidth;
+        float top = y - mFontLineSpacing;
+        Rect source = emulator.getScreen().getSixelRect(style);
+        RectF destination = new RectF(left, top, left + mFontWidth, top + mFontLineSpacing);
+        canvas.drawBitmap(bitmap, source, destination, null);
+    }
+
+    private void drawTextRun(Canvas canvas, char[] text, int[] palette, float y, int startColumn, int runWidthColumns,
+                             int startCharIndex, int runWidthChars, float mes, int cursor, int cursorStyle,
+                             long textStyle, boolean reverseVideo, TerminalTextLayout.ShapedRun shaped, int cellIndex) {
         int foreColor = TextStyle.decodeForeColor(textStyle);
         final int effect = TextStyle.decodeEffect(textStyle);
         int backColor = TextStyle.decodeBackColor(textStyle);
@@ -214,7 +281,7 @@ public final class TerminalRenderer {
 
         mes = mes / mFontWidth;
         boolean savedMatrix = false;
-        if (Math.abs(mes - runWidthColumns) > 0.01) {
+        if (mes > 0 && Math.abs(mes - runWidthColumns) > 0.01) {
             canvas.save();
             canvas.scale(runWidthColumns / mes, 1.f);
             left *= mes / runWidthColumns;
@@ -256,7 +323,9 @@ public final class TerminalRenderer {
             mTextPaint.setColor(foreColor);
 
             // The text alignment is the default Paint.Align.LEFT.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (shaped != null) {
+                shaped.drawCell(canvas, cellIndex, left, left + runWidthColumns * mFontWidth, y - mFontLineSpacingAndAscent, mTextPaint);
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, false, mTextPaint);
             } else {
                 canvas.drawText(text, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, mTextPaint);

@@ -46,7 +46,7 @@ public final class TerminalSession extends TerminalOutput {
      * A queue written to from the main thread due to user interaction, and read by another thread which forwards by
      * writing to the {@link #mTerminalFileDescriptor}.
      */
-    final ByteQueue mTerminalToProcessIOQueue = new ByteQueue(4096);
+    final TerminalInputQueue mTerminalToProcessIOQueue = new TerminalInputQueue();
     /** Buffer to write translate code points into utf8 before writing to mTerminalToProcessIOQueue */
     private final byte[] mUtf8InputBuffer = new byte[5];
 
@@ -150,15 +150,16 @@ public final class TerminalSession extends TerminalOutput {
         new Thread("TermSessionOutputWriter[pid=" + mShellPid + "]") {
             @Override
             public void run() {
-                final byte[] buffer = new byte[4096];
                 try (FileOutputStream termOut = new FileOutputStream(terminalFileDescriptorWrapped)) {
                     while (true) {
-                        int bytesToWrite = mTerminalToProcessIOQueue.read(buffer, true);
-                        if (bytesToWrite == -1) return;
-                        termOut.write(buffer, 0, bytesToWrite);
+                        byte[] buffer = mTerminalToProcessIOQueue.read();
+                        if (buffer == null) return;
+                        termOut.write(buffer);
                     }
-                } catch (IOException e) {
+                } catch (IOException | InterruptedException e) {
                     // Ignore.
+                } finally {
+                    mTerminalToProcessIOQueue.close();
                 }
             }
         }.start();

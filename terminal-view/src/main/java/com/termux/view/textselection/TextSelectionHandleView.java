@@ -46,6 +46,7 @@ public class TextSelectionHandleView extends View {
     private int mHandleWidth;
 
     private final int mInitialOrientation;
+    private int mSelectionOrientation;
     private int mOrientation;
 
     public static final int LEFT = 0;
@@ -58,6 +59,7 @@ public class TextSelectionHandleView extends View {
         this.terminalView = terminalView;
         mCursorController = cursorController;
         mInitialOrientation = initialOrientation;
+        mSelectionOrientation = initialOrientation;
 
         mHandleLeftDrawable = getContext().getDrawable(R.drawable.text_select_handle_left_material);
         mHandleRightDrawable = getContext().getDrawable(R.drawable.text_select_handle_right_material);
@@ -154,7 +156,9 @@ public class TextSelectionHandleView extends View {
     }
 
     public void positionAtCursor(final int cx, final int cy, boolean forceOrientationCheck) {
-        int x = terminalView.getPointX(cx);
+        int x = terminalView.getSelectionPointX(cx, cy, mInitialOrientation == RIGHT);
+        mSelectionOrientation = terminalView.isRtlAt(cx, cy) ? RIGHT - mInitialOrientation : mInitialOrientation;
+        if (!mIsDragging) changeOrientation(mSelectionOrientation);
         int y = terminalView.getPointY(cy + 1);
         moveTo(x, y, forceOrientationCheck);
     }
@@ -237,7 +241,7 @@ public class TextSelectionHandleView extends View {
         } else if (posX + mHandleWidth > clip.right) {
             changeOrientation(LEFT);
         } else {
-            changeOrientation(mInitialOrientation);
+            changeOrientation(mSelectionOrientation);
         }
     }
 
