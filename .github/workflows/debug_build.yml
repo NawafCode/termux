@@ -8,6 +8,10 @@ on:
   pull_request:
     branches:
       - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -53,9 +57,11 @@ jobs:
           APK_BASENAME_PREFIX="termux-app_$APK_VERSION_TAG"
 
           # Used by attachment steps later
-          echo "APK_DIR_PATH=$APK_DIR_PATH" >> $GITHUB_ENV
-          echo "APK_VERSION_TAG=$APK_VERSION_TAG" >> $GITHUB_ENV
-          echo "APK_BASENAME_PREFIX=$APK_BASENAME_PREFIX" >> $GITHUB_ENV
+          {
+            echo "APK_DIR_PATH=$APK_DIR_PATH"
+            echo "APK_VERSION_TAG=$APK_VERSION_TAG"
+            echo "APK_BASENAME_PREFIX=$APK_BASENAME_PREFIX"
+          } >> "$GITHUB_ENV"
 
           echo "Building APKs for 'APK_VERSION_TAG' build"
           export TERMUX_APP_VERSION_NAME="${RELEASE_VERSION_NAME/v/}" # Used by app/build.gradle

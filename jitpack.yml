@@ -2,3 +2,5 @@ jdk:
   - openjdk17
 env:
   JITPACK_NDK_VERSION: "29.0.14206865"
+install:
+  - ./gradlew :terminal-emulator:publishToMavenLocal :terminal-view:publishToMavenLocal :termux-shared:publishToMavenLocal --console=plain --stacktrace
