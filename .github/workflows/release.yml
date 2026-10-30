@@ -52,7 +52,7 @@ jobs:
           java-version: '17'
 
       - name: Install signing tools
-        run: sdkmanager "build-tools;$BUILD_TOOLS_VERSION"
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;$BUILD_TOOLS_VERSION"'
 
       - name: Set build version
         run: |
